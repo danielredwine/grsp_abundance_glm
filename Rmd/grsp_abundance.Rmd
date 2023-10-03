@@ -1,0 +1,105 @@
+---
+title: "Predicting Grasshopper Sparrow Abundance by Landscape Characteristics"
+author: "Daniel Redwine"
+date: "`r Sys.Date()`"
+output: 
+  html_document:
+    toc: true # table of content true
+    toc_depth: 1  # up to one depth of headings, no subheader (specified by # in html)
+    number_sections: false  ## if you want number sections at each table header
+    theme: united  # many options for theme
+---
+```{r setup, echo=FALSE, warning=FALSE, include = FALSE}
+knitr::opts_chunk$set(fig.asp = .66, fig.width = 5)
+#Its common to have a setup area to help keep track of required packages and formatting options
+
+library(tidyverse)  #importing, tidying, plotting data
+library(knitr)      #making tables
+library(leaflet)
+library(dplyr)
+library(hexbin)
+library(ggplot2)
+library(readr)
+library(RColorBrewer)
+library(ggfortify)
+library(tidyr)
+library(gridExtra)
+library(gtsummary)
+library(gt)
+library(flextable)
+library(arm)
+library(performance)
+library(AICcmodavg)
+library(grid)
+
+#knitr::opts_chunk$set(fig.width = 5, fig.asp = 1/3) #force figures to be a certain size and aspect ratio
+#opts_chunk$set(echo=FALSE)   #can force hide all code in the output; disables 'code folding'
+```
+# Grasshopper Sparrow Abundance
+
+Grasshopper Sparrows are a grassland obligate species with a distribution across much of the continental United States. Using a dataset obtained from Dryad [here](https://doi.org/10.5061/dryad.9pr1476), we will model Grasshopper Sparrow abundance based on landscape characteristics. 
+
+<center>
+<iframe src="https://macaulaylibrary.org/asset/335564991/embed" height="533" width="640" frameborder="0" allowfullscreen></iframe>
+</center>
+<center> Figure 1. Photograph of a Grasshopper Sparrow </center>
+
+```{r load dataset, message=FALSE, echo=FALSE, error=FALSE}
+
+grsp_abundance_data <- read.csv("../data/grsp_glmm_input_data.csv")
+
+grsp_abundance_data_clean <- grsp_abundance_data %>%
+  dplyr::filter(visit == 2) %>% # filtering out visit to avoid random effect
+  dplyr::filter(year == 2015) %>% # filtering out year to avoid random effect
+  dplyr::select(grsp, ca_400, grass_tree_ed_400)
+
+grsp_abundance_binary_data <- grsp_abundance_data_clean %>%
+  mutate(grsp = if_else(grsp >= 1, 1, 0))
+
+grsp_abundance_nonzero_data <- grsp_abundance_data_clean %>%
+  filter(grsp >= 1)
+  
+
+```
+
+# Visualizing Abundance Data
+
+```{r abundance histogram, warning=FALSE, echo=FALSE, message=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 2. Histogram showing counts of different grasshopper sparrow abundances"}
+ggplot(grsp_abundance_data_clean, aes(x=grsp)) + geom_histogram(binwidth=1, colour="black", fill="skyblue")+
+  xlab("Grasshopper Sparrow Abundance") +
+  ylab("Count")+
+  theme_bw()
+
+```
+
+
+# Poisson GLM
+
+Total grassland area within 400 meters
+
+# Separating Zeroes
+
+```{r binomial model plot, message=FALSE, echo=FALSE, warning=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 3. Model of probability of occurrence for a given core area of grassland (ha) within 400 m"}
+grsp_ha_binomial_graph <- ggplot(grsp_abundance_binary_data, aes(ca_400, grsp)) +
+  geom_count(show.legend = FALSE) + # Geom count changes size of points to count
+  geom_smooth(method="glm", method.args=list(family="binomial"(link="logit")), color = "slateblue", fill = "lightskyblue2") + # Geom smooth can use the model to create curve and CI
+  ylab ("Occurrence Probability") +
+  xlab ("Grassland Core Area (ha)") +
+  theme_bw()
+# Create a graph with male/female (1/0) on y and wing chord on x 
+
+grsp_ha_binomial_graph #Call object 
+```
+```{r abundance nonzero histogram, warning=FALSE, echo=FALSE, message=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 4. Histogram showing counts of different grasshopper sparrow abundances for all nonzero values"}
+ggplot(grsp_abundance_nonzero_data, aes(x=grsp)) + geom_histogram(binwidth=1, colour="black", fill="skyblue")+
+  xlab("Grasshopper Sparrow Abundance") +
+  ylab("Count")+
+  theme_bw()
+
+```
+
+
+# Binomial Model
+
+
+# Nonzero Poisson GLM

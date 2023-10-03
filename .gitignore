@@ -47,3 +47,8 @@ po/*~
 
 # RStudio Connect folder
 rsconnect/
+
+# To ignore
+data/
+output/
+grsp_abundance_glm.Rproj
