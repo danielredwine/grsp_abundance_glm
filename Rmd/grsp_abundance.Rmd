@@ -5,7 +5,7 @@ date: "`r Sys.Date()`"
 output: 
   html_document:
     toc: true # table of content true
-    toc_depth: 1  # up to one depth of headings, no subheader (specified by # in html)
+    toc_depth: 2  # up to one depth of headings, no subheader (specified by # in html)
     number_sections: false  ## if you want number sections at each table header
     theme: united  # many options for theme
 ---
@@ -15,22 +15,15 @@ knitr::opts_chunk$set(fig.asp = .66, fig.width = 5)
 
 library(tidyverse)  #importing, tidying, plotting data
 library(knitr)      #making tables
-library(leaflet)
 library(dplyr)
-library(hexbin)
 library(ggplot2)
-library(readr)
-library(RColorBrewer)
 library(ggfortify)
-library(tidyr)
-library(gridExtra)
-library(gtsummary)
-library(gt)
-library(flextable)
 library(arm)
 library(performance)
 library(AICcmodavg)
-library(grid)
+library(easystats)
+library(MASS)
+library(patchwork)
 
 #knitr::opts_chunk$set(fig.width = 5, fig.asp = 1/3) #force figures to be a certain size and aspect ratio
 #opts_chunk$set(echo=FALSE)   #can force hide all code in the output; disables 'code folding'
@@ -65,41 +58,193 @@ grsp_abundance_nonzero_data <- grsp_abundance_data_clean %>%
 # Visualizing Abundance Data
 
 ```{r abundance histogram, warning=FALSE, echo=FALSE, message=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 2. Histogram showing counts of different grasshopper sparrow abundances"}
-ggplot(grsp_abundance_data_clean, aes(x=grsp)) + geom_histogram(binwidth=1, colour="black", fill="skyblue")+
+
+grsp_abundance_histogram <- ggplot(grsp_abundance_data_clean, aes(x=grsp)) + geom_histogram(binwidth=1, colour="black", fill="skyblue")+
   xlab("Grasshopper Sparrow Abundance") +
   ylab("Count")+
   theme_bw()
 
+grsp_abundance_histogram # Histogram of GRSP abundance data
 ```
 
+```{r abundance vs 400m tree edge and grassland ca plot, message=FALSE, error=FALSE, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "default", fig.cap= "Figure 3. Plots showing the relationship between 400m grassland core area (ha) and Grasshopper Sparrow abundance (left) and 400m grassland-woodland edge density (m/ha) and Grasshopper Sparrow abundance (right)."}
+
+abundance_vs_ca_plot <- ggplot(grsp_abundance_data_clean, aes(ca_400, grsp)) + 
+  geom_count(show.legend=FALSE) +
+  geom_smooth(method="glm", method.args=list(family="poisson"(link="log"))) +
+  ylab("Grasshopper Sparrow Abundance") +
+  xlab("400m Grassland Core Area (ha)") +
+  theme_bw()
+
+abundance_vs_ca_plot # code for plot for the core area factor
+
+abundance_vs_edge_plot <- ggplot(grsp_abundance_data_clean, aes(grass_tree_ed_400, grsp)) + 
+  geom_count(show.legend=FALSE) +
+  geom_smooth(method="glm", method.args=list(family="poisson"(link="log"))) +
+  ylab("Grasshopper Sparrow Abundance") +
+  xlab("400m Grassland-Woodland Edge Density (m/ha)") +
+  theme_bw()
+
+abundance_vs_edge_plot # code for plot for the tree edge factor 
+```
+We can see a positive relationship between grassland core area and Grasshopper Sparrow counts and a negative relationship between grassland-woodland edge density (m/ha) at the 400m scale. Looks like there may be a large amount of zeros in the dataset possibly skewing the data, but we'll check Poisson model output.
 
 # Poisson GLM
 
-Total grassland area within 400 meters
+A Poisson GLM showing the relationships between Grasshopper Sparrow counts and both 400m grassland core area (ha) and 400m grassland-woodland edge density (m/ha). 
 
-# Separating Zeroes
+```{r poisson abundance all data model, echo=FALSE, message=FALSE, warning=FALSE}
 
-```{r binomial model plot, message=FALSE, echo=FALSE, warning=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 3. Model of probability of occurrence for a given core area of grassland (ha) within 400 m"}
-grsp_ha_binomial_graph <- ggplot(grsp_abundance_binary_data, aes(ca_400, grsp)) +
-  geom_count(show.legend = FALSE) + # Geom count changes size of points to count
-  geom_smooth(method="glm", method.args=list(family="binomial"(link="logit")), color = "slateblue", fill = "lightskyblue2") + # Geom smooth can use the model to create curve and CI
-  ylab ("Occurrence Probability") +
-  xlab ("Grassland Core Area (ha)") +
-  theme_bw()
-# Create a graph with male/female (1/0) on y and wing chord on x 
+model_grsp_abundance_poisson <- glm(grsp ~ ca_400*grass_tree_ed_400, family = poisson, data=grsp_abundance_data_clean) #GLM model including the interaction term, logit is default
 
-grsp_ha_binomial_graph #Call object 
+summary(model_grsp_abundance_poisson)
 ```
-```{r abundance nonzero histogram, warning=FALSE, echo=FALSE, message=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 4. Histogram showing counts of different grasshopper sparrow abundances for all nonzero values"}
-ggplot(grsp_abundance_nonzero_data, aes(x=grsp)) + geom_histogram(binwidth=1, colour="black", fill="skyblue")+
+Residual deviance is actually similar to residual degrees of freedom. The model seems to have only slight underdispersion despite the high numbers of zeros. However we will check the assumptions of the model.
+
+```{r check poisson model all data, message=FALSE, error=FALSE, echo=FALSE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE, out.width = "100%", fig.align = "default", fig.cap= "Figure 4. Assumptions of Poisson model including all data. Observed is close to predicted in most cases."}
+
+poisson_all_data_check <-check_model(model_grsp_abundance_poisson)
+
+poisson_all_data_check
+
+```
+
+We could also run a quasipoisson to see if this helps with any of the assumptions.
+
+```{r quasipoisson abundance all data model, echo=FALSE, message=FALSE, warning=FALSE}
+
+model_grsp_abundance_quasipoisson <- glm(grsp ~ ca_400*grass_tree_ed_400, family = quasipoisson, data=grsp_abundance_data_clean) #GLM model including the interaction term, logit is default
+
+summary(model_grsp_abundance_quasipoisson)
+```
+Both the residual deviance and df are similar between the quasipoisson and the poisson model. The quasipoisson did not alleviate any slight underdispersion. However, we can see that in the quasipoisson the interaction term is no longer significant. 
+
+```{r check quasipoisson model all data, message=FALSE, error=FALSE, echo=FALSE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE, out.width = "100%", fig.align = "default", fig.cap= "Figure 5. Assumptions of quasiPoisson model including all data. Output is similar to the Poisson model."}
+
+quasipoisson_all_data_check <-check_model(model_grsp_abundance_quasipoisson)
+
+quasipoisson_all_data_check
+
+```
+We don't see an improvement with any of these parameters for the quasipoisson model. For model interpretation we will use the Poisson GLM. 
+
+# Model Interpretation
+
+```{r poisson summary, echo=FALSE, message=FALSE, warning=FALSE}
+
+summary(model_grsp_abundance_poisson) # Summary  of the Poisson model 
+```
+We can see that grassland core area, density of tree edge to grassland core area, and the interaction term are all statistically significant. Slight underdispersion with a lower residual deviance compared to residual degrees of freedom. 
+
+```{r model confidence intervals, message=FALSE, error=FALSE, echo=FALSE}
+
+confint(model_grsp_abundance_poisson) # Checking the confidence intervals
+```
+We can see that the confidence intervals for both predictors and the interaction term do not cross zero indicating that they are significant. 
+
+```{r model coefficients, message=FALSE, echo=FALSE, message=FALSE}
+
+coef(model_grsp_abundance_poisson) #checking the coefficients
+
+```
+Here we can see the coefficients for the predicted lines. For the logit transformation e^(coef*x) is the transformation which occurs. There is a positive coefficient for grassland core area at the 400m scale. Therefore the predicted abundance of Grasshopper Sparrow increases at a rate of e^0.054x for each hectare of grassland core area within 400m. Grassland and woodland edge density (m/ha) has a negative coefficient, so Grasshopper Sparrow abundance decreases at a rate of e^-0.020x for each additional meter of grassland-woodland edge per hectare within 400m. However, we cannot use these terms to directly extrapolate density because there is an interaction between grassland-woodland edge and grassland core area. 
+
+# Hurdle Model
+
+To see if correction for zero-inflation improves the model, we will model presence/absence and nonzero counts separately. A hurdle model assumes that there is some "hurdle" that must be overcome before an event occurs. Since we are using the same few factors for both the binomial and the Poisson GLM, we may not be meeting this assumption. The ZIP model may be a better fit for this data. 
+
+## Binomial Model
+```{r presence vs 400m tree edge and grassland ca plot, message=FALSE, error=FALSE, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "default", fig.cap= "Figure 6. Plots showing the relationship between 400m grassland core area (ha) and Grasshopper Sparrow presence (left) and 400m grassland-woodland edge density (m/ha) and Grasshopper Sparrow presence (right)."}
+
+presence_vs_ca_plot <- ggplot(grsp_abundance_binary_data, aes(ca_400, grsp)) + 
+  geom_count(show.legend=FALSE) +
+  geom_smooth(method="glm", method.args=list(family="poisson"(link="log"))) +
+  ylab("Grasshopper Sparrow Abundance") +
+  xlab("400m Grassland Core Area (ha)") +
+  theme_bw()
+
+presence_vs_ca_plot # code for plot for the core area factor
+
+presence_vs_edge_plot <- ggplot(grsp_abundance_binary_data, aes(grass_tree_ed_400, grsp)) + 
+  geom_count(show.legend=FALSE) +
+  geom_smooth(method="glm", method.args=list(family="poisson"(link="log"))) +
+  ylab("Grasshopper Sparrow Abundance") +
+  xlab("400m Grassland-Woodland Edge Density (m/ha)") +
+  theme_bw()
+
+presence_vs_edge_plot # code for plot for the tree edge factor 
+
+```
+```{r binomial presence model, echo=FALSE, message=FALSE, warning=FALSE}
+
+binomial_presence_model <- glm(grsp ~ ca_400*grass_tree_ed_400, data=grsp_abundance_binary_data, binomial(link = 'logit'))
+# Fit model, presence as function of core area and woodland edge
+
+summary(binomial_presence_model)
+
+confint(binomial_presence_model)
+
+coef(binomial_presence_model)
+```
+For presence we can see that both 400m core area and grassland-woodland edge density are significant predictors of Grasshopper Sparrow presence, but the interaction term is not. Confidence intervals for significant terms do not cross zero. Positive coefficient for core area, negative for grassland-woodland edge density.
+
+```{r binary presence assumptions, echo=FALSE, warning=FALSE, message=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 7. Checking overdispersion of data. Note that some points fall outside the 95% CI"}
+
+library(arm)
+x <- predict(binomial_presence_model) #set x and y
+y <- resid(binomial_presence_model)
+grsp_presence_assumption_plot <- binnedplot(x, y) # Create the plot to check confidence intervals
+
+grsp_presence_assumption_plot
+```
+
+## Non-zero Poisson
+
+```{r nonzero abundance histogram, warning=FALSE, echo=FALSE, message=FALSE, fig.show = "hold", out.width = "85%", fig.align = "center", fig.cap= "Figure 8. Histogram showing nonzero counts of different grasshopper sparrow abundances"}
+
+nonzero_grsp_abundance_histogram <- ggplot(grsp_abundance_nonzero_data, aes(x=grsp)) + geom_histogram(binwidth=1, colour="black", fill="skyblue")+
   xlab("Grasshopper Sparrow Abundance") +
   ylab("Count")+
   theme_bw()
 
+nonzero_grsp_abundance_histogram # Histogram of GRSP abundance data
 ```
 
+```{r nonzero abundance vs 400m tree edge and grassland ca plot, message=FALSE, error=FALSE, echo=FALSE, fig.show = "hold", out.width = "50%", fig.align = "default", fig.cap= "Figure 9. Plots showing the relationship between 400m grassland core area (ha) and Grasshopper Sparrow abundance (left) and 400m grassland-woodland edge density (m/ha) and Grasshopper Sparrow abundance (right) for nonzero data."}
 
-# Binomial Model
+nonzero_abundance_vs_ca_plot <- ggplot(grsp_abundance_nonzero_data, aes(ca_400, grsp)) + 
+  geom_count(show.legend=FALSE) +
+  geom_smooth(method="glm", method.args=list(family="poisson"(link="log"))) +
+  ylab("Grasshopper Sparrow Abundance") +
+  xlab("400m Grassland Core Area (ha)") +
+  theme_bw()
 
+nonzero_abundance_vs_ca_plot # code for plot for the core area factor
 
-# Nonzero Poisson GLM
+nonzero_abundance_vs_edge_plot <- ggplot(grsp_abundance_nonzero_data, aes(grass_tree_ed_400, grsp)) +
+  geom_count(show.legend=FALSE) +
+  geom_smooth(method="glm", method.args=list(family="poisson"(link="log"))) +
+  ylab("Grasshopper Sparrow Abundance") +
+  xlab("400m Grassland-Woodland Edge Density (m/ha)") +
+  theme_bw()
+
+nonzero_abundance_vs_edge_plot # code for plot for the tree edge factor 
+```
+
+```{r nonzero poisson abundance all data model, echo=FALSE, message=FALSE, warning=FALSE}
+
+model_grsp_nonzero_poisson <- glm(grsp ~ ca_400*grass_tree_ed_400, family = poisson, data=grsp_abundance_nonzero_data) #GLM model including the interaction term, logit is default
+
+summary(model_grsp_nonzero_poisson)
+```
+This model is even more underdispersed than the original model. The only significant factor is grassland core area. 
+
+```{r check nonzero poisson model, message=FALSE, error=FALSE, echo=FALSE, fig.height=8, fig.width=10, message=FALSE, warning=FALSE, out.width = "100%", fig.align = "default", fig.cap= "Figure 10. Assumptions of nonzero Poisson model. Some of these look worse than the original Poisson"}
+
+poisson_nonzero_check <-check_model(model_grsp_nonzero_poisson)
+
+poisson_nonzero_check
+
+```
+
+It seems that this model is not a better fit than the original Poisson Model. An additional technique would be to utilize a ZIP model, but for now we'll stick with the original Poisson model.  
